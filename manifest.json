@@ -6,7 +6,10 @@
   "permissions": [
     "storage",
     "activeTab",
-    "scripting"
+    "scripting",
+    "notifications",
+    "contextMenus",
+    "tabs"
   ],
   "host_permissions": [
     "https://www.linkedin.com/*",
@@ -36,6 +39,14 @@
   },
   "background": {
     "service_worker": "background.js"
+  },
+  "commands": {
+    "capture-job": {
+      "suggested_key": {
+        "default": "Alt+Shift+C"
+      },
+      "description": "Capture current job"
+    }
   },
   "content_scripts": [
     {

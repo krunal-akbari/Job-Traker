@@ -20,14 +20,8 @@ chrome.runtime.onInstalled.addListener((details) => {
       }
     });
 
-    // Open welcome page or show notification
-    chrome.notifications.create({
-      type: 'basic',
-      iconUrl: 'icons/icon128.png',
-      title: 'Job Tracker Installed!',
-      message: 'Click the extension icon to start tracking your job applications.',
-      priority: 2
-    });
+    // Open welcome page or show notification (guarded)
+    safeNotify('Job Tracker Installed!', 'Click the extension icon to start tracking your job applications.');
   }
 
   if (details.reason === 'update') {
@@ -98,23 +92,16 @@ async function handleJobDetected(jobData, tab) {
 
     // Show notification if enabled
     if (settings.notifications) {
-      chrome.notifications.create({
-        type: 'basic',
-        iconUrl: 'icons/icon128.png',
+      safeCreateNotification({
         title: 'New Job Detected!',
         message: `${jobData.position} at ${jobData.company}`,
-        priority: 1,
-        buttons: [
-          { title: 'Track This Job' }
-        ]
-      }, (notificationId) => {
-        // Store notification data for button click handling
-        chrome.storage.session.set({
-          [`notification_${notificationId}`]: {
+        onCreated: async (notificationId) => {
+          // Store notification data for button click handling
+          await safeSessionSet(`notification_${notificationId}`, {
             jobData,
             tabId: tab?.id
-          }
-        });
+          });
+        }
       });
     }
   } catch (error) {
@@ -129,8 +116,7 @@ chrome.notifications.onButtonClicked.addListener(async (notificationId, buttonIn
   if (buttonIndex === 0) { // "Track This Job" button
     try {
       const key = `notification_${notificationId}`;
-      const result = await chrome.storage.session.get([key]);
-      const notificationData = result[key];
+      const notificationData = await safeSessionGet(key);
 
       if (notificationData && notificationData.jobData) {
         // Add the job to applications
@@ -154,19 +140,13 @@ chrome.notifications.onButtonClicked.addListener(async (notificationId, buttonIn
         await chrome.storage.local.set({ applications });
 
         // Show confirmation
-        chrome.notifications.create({
-          type: 'basic',
-          iconUrl: 'icons/icon128.png',
-          title: 'Job Tracked!',
-          message: `${newApp.position} at ${newApp.company} has been added.`,
-          priority: 1
-        });
+        safeNotify('Job Tracked!', `${newApp.position} at ${newApp.company} has been added.`);
 
         // Update badge
         updateBadge();
 
         // Clean up session storage
-        await chrome.storage.session.remove([key]);
+        await safeSessionRemove(key);
       }
     } catch (error) {
       console.error('Error tracking job from notification:', error);
@@ -275,61 +255,75 @@ function generateId() {
 }
 
 function showNotification(title, message) {
-  chrome.notifications.create({
-    type: 'basic',
-    iconUrl: 'icons/icon128.png',
-    title,
-    message,
-    priority: 1
-  });
-}
-
-// ============================================
-// Periodic Tasks (Optional)
-// ============================================
-// Set up alarm for daily stats reset or reminders
-chrome.alarms.create('dailyCheck', {
-  periodInMinutes: 1440 // Once per day
-});
-
-chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === 'dailyCheck') {
-    // Could send reminders about pending applications
-    checkPendingApplications();
-  }
-});
-
-async function checkPendingApplications() {
-  try {
-    const result = await chrome.storage.local.get(['applications', 'settings']);
-    const applications = result.applications || [];
-    const settings = result.settings || {};
-
-    if (!settings.notifications) return;
-
-    // Find applications pending for more than 7 days
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
-    const staleApplications = applications.filter(app => {
-      if (app.status !== 'pending' && app.status !== 'applied') return false;
-      const appliedDate = new Date(app.dateApplied);
-      return appliedDate < sevenDaysAgo;
-    });
-
-    if (staleApplications.length > 0) {
-      chrome.notifications.create({
-        type: 'basic',
-        iconUrl: 'icons/icon128.png',
-        title: 'Application Reminder',
-        message: `You have ${staleApplications.length} application(s) pending for over a week. Consider following up!`,
-        priority: 1
-      });
-    }
-  } catch (error) {
-    console.error('Error checking pending applications:', error);
-  }
+  safeNotify(title, message);
 }
 
 // Initialize badge on startup
 updateBadge();
+
+// ============================================
+// Safe helpers (permissions and availability guards)
+// ============================================
+function safeNotify(title, message) {
+  try {
+    if (!chrome?.notifications?.create) return;
+    chrome.notifications.create({
+      type: 'basic',
+      iconUrl: 'icons/icon128.png',
+      title,
+      message,
+      priority: 1
+    });
+  } catch (e) {
+    // swallow
+  }
+}
+
+function safeCreateNotification({ title, message, onCreated }) {
+  try {
+    if (!chrome?.notifications?.create) return;
+    chrome.notifications.create({
+      type: 'basic',
+      iconUrl: 'icons/icon128.png',
+      title,
+      message,
+      priority: 1,
+      buttons: [{ title: 'Track This Job' }]
+    }, (notificationId) => {
+      try { onCreated && onCreated(notificationId); } catch (e) {}
+    });
+  } catch (e) {
+    // swallow
+  }
+}
+
+async function safeSessionSet(key, value) {
+  try {
+    if (chrome?.storage?.session?.set) {
+      await chrome.storage.session.set({ [key]: value });
+      return;
+    }
+  } catch (_) {}
+  await chrome.storage.local.set({ [key]: value });
+}
+
+async function safeSessionGet(key) {
+  try {
+    if (chrome?.storage?.session?.get) {
+      const res = await chrome.storage.session.get([key]);
+      return res[key];
+    }
+  } catch (_) {}
+  const res = await chrome.storage.local.get([key]);
+  return res[key];
+}
+
+async function safeSessionRemove(key) {
+  try {
+    if (chrome?.storage?.session?.remove) {
+      await chrome.storage.session.remove([key]);
+      return;
+    }
+  } catch (_) {}
+  await chrome.storage.local.remove([key]);
+}
