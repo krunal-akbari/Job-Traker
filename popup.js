@@ -36,6 +36,7 @@ const elements = {
   // Settings
   autoCapture: document.getElementById('autoCapture'),
   notifications: document.getElementById('notifications'),
+  darkTheme: document.getElementById('darkTheme'),
 
   // Display
   applicationsList: document.getElementById('applicationsList'),
@@ -58,7 +59,8 @@ const elements = {
 let applications = [];
 let settings = {
   autoCapture: false,
-  notifications: true
+  notifications: true,
+  theme: 'dark'
 };
 
 // ============================================
@@ -95,9 +97,16 @@ async function saveData() {
 async function loadSettings() {
   return new Promise((resolve) => {
     chrome.storage.local.get(['settings'], (result) => {
-      settings = result.settings || { autoCapture: false, notifications: true };
+      const stored = result.settings || {};
+      settings = {
+        autoCapture: stored.autoCapture ?? false,
+        notifications: stored.notifications ?? true,
+        theme: stored.theme || 'dark'
+      };
       elements.autoCapture.checked = settings.autoCapture;
       elements.notifications.checked = settings.notifications;
+      elements.darkTheme.checked = settings.theme === 'dark';
+      applyTheme(settings.theme);
       resolve();
     });
   });
@@ -106,9 +115,17 @@ async function loadSettings() {
 async function saveSettings() {
   settings.autoCapture = elements.autoCapture.checked;
   settings.notifications = elements.notifications.checked;
+  settings.theme = elements.darkTheme.checked ? 'dark' : 'light';
+  applyTheme(settings.theme);
   return new Promise((resolve) => {
     chrome.storage.local.set({ settings }, resolve);
   });
+}
+
+function applyTheme(theme) {
+  const body = document.body;
+  body.classList.remove('theme-dark', 'theme-light');
+  body.classList.add(theme === 'dark' ? 'theme-dark' : 'theme-light');
 }
 
 // ============================================
@@ -677,6 +694,7 @@ function bindEvents() {
   elements.closeSettings.addEventListener('click', closeSettingsModal);
   elements.autoCapture.addEventListener('change', saveSettings);
   elements.notifications.addEventListener('change', saveSettings);
+  elements.darkTheme.addEventListener('change', saveSettings);
 
   // Modal
   elements.closeModal.addEventListener('click', closeModal);
